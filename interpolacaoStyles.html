@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interpolação de Curvas</title>
+  <style>
+    :root {
+      --primary-color: #007BFF;
+      --secondary-color: #ffffff;
+      --background-color: #f0f8ff;
+      --text-color: #333333;
+      --hover-color: #0056b3;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      padding: 20px;
+    }
+    .main-container {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    #canvas {
+      border: 2px solid var(--primary-color);
+      background-color: var(--secondary-color);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .sidebar {
+      background-color: var(--secondary-color);
+      border: 2px solid var(--primary-color);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+      max-width: 300px;
+      width: 100%;
+    }
+    .sidebar h2 {
+      margin-top: 0;
+      color: var(--primary-color);
+      text-align: center;
+    }
+    .sidebar section {
+      margin-bottom: 20px;
+    }
+    .sidebar section h3 {
+      margin-bottom: 10px;
+      font-size: 16px;
+      border-bottom: 1px solid var(--primary-color);
+      padding-bottom: 5px;
+    }
+    .group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .group label {
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .group input[type="number"] {
+      padding: 5px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      width: 70px;
+    }
+    .group button {
+      padding: 7px 12px;
+      font-size: 14px;
+      border: none;
+      border-radius: 4px;
+      background-color: var(--primary-color);
+      color: var(--secondary-color);
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    .group button:hover {
+      background-color: var(--hover-color);
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <canvas id="canvas" width="600" height="600"></canvas>
+    <aside class="sidebar">
+      <h2>Interpolação de Curvas</h2>
+      
+      <!-- Seção Configurações de Captura -->
+      <section class="config-captura">
+        <h3>Configurações de Captura</h3>
+        <div class="group">
+          <label for="intervalInput">Intervalo (ms):</label>
+          <input type="number" id="intervalInput" value="50" min="1">
+        </div>
+        <div class="group">
+          <button id="readingModeBtn">Modo Leitura</button>
+          <button id="renderingModeBtn">Modo Renderização</button>
+        </div>
+      </section>
+      
+      <!-- Seção Métodos de Interpolação -->
+      <section class="metodos">
+        <h3>Método de Interpolação</h3>
+        <div class="group">
+          <button id="mmqBtn">MMQ</button>
+          <button id="lagrangeBtn">Lagrange</button>
+          <button id="newtonBtn">Newton</button>
+        </div>
+        <div class="group">
+          <label for="degreeInput">Grau (MMQ):</label>
+          <input type="number" id="degreeInput" value="2" min="1">
+        </div>
+      </section>
+      
+      <!-- Seção Adicionar Ponto Manual -->
+      <section class="adicionar-ponto">
+        <h3>Adicionar Ponto Manual</h3>
+        <div class="group">
+          <label for="xInput">X:</label>
+          <input type="number" id="xInput" value="0">
+          <label for="yInput">Y:</label>
+          <input type="number" id="yInput" value="0">
+          <button id="addPointBtn">Adicionar Ponto</button>
+        </div>
+      </section>
+      
+      <!-- Seção Ações -->
+      <section class="acoes">
+        <h3>Ações</h3>
+        <div class="group">
+          <button id="clearBtn">Limpar</button>
+        </div>
+      </section>
+      
+    </aside>
+  </div>
+  
+  <script>
+    // Seleção dos elementos
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const intervalInput = document.getElementById("intervalInput");
+    const degreeInput = document.getElementById("degreeInput");
+    const readingModeBtn = document.getElementById("readingModeBtn");
+    const renderingModeBtn = document.getElementById("renderingModeBtn");
+    const mmqBtn = document.getElementById("mmqBtn");
+    const lagrangeBtn = document.getElementById("lagrangeBtn");
+    const newtonBtn = document.getElementById("newtonBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const xInput = document.getElementById("xInput");
+    const yInput = document.getElementById("yInput");
+    const addPointBtn = document.getElementById("addPointBtn");
+
+    // Variáveis de controle
+    let captureTimer = null;
+    let points = []; // Armazena os pontos {x, y}
+    let currentMousePos = null;
+    let currentMethod = "mmq"; // método padrão
+    let readingMode = true; // modo leitura ativo por padrão
+
+    // Atualiza a posição do mouse sobre o canvas
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      currentMousePos = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    });
+    canvas.addEventListener("mouseleave", () => { currentMousePos = null; });
+
+    // Desenha um ponto (círculo pequeno) no canvas
+    function drawPoint(x, y) {
+      ctx.fillStyle = "red";
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Desenha todos os pontos armazenados
+    function drawAllPoints() {
+      points.forEach(pt => drawPoint(pt.x, pt.y));
+    }
+
+    // Inicia a captura dos pontos (modo leitura)
+    function startCapturing() {
+      if (captureTimer) clearInterval(captureTimer);
+      const interval = parseInt(intervalInput.value, 10);
+      captureTimer = setInterval(() => {
+        if (readingMode && currentMousePos) {
+          points.push({ x: currentMousePos.x, y: currentMousePos.y });
+          drawPoint(currentMousePos.x, currentMousePos.y);
+        }
+      }, interval);
+    }
+
+    // Para a captura dos pontos
+    function stopCapturing() {
+      if (captureTimer) {
+        clearInterval(captureTimer);
+        captureTimer = null;
+      }
+    }
+
+    // =========================
+    // MÉTODOS DE INTERPOLAÇÃO
+    // =========================
+
+    // MMQ (Mínimos Quadrados)
+    function mmqPolynomial(points, degree) {
+      const n = points.length, d = degree;
+      const A = Array.from({length: d + 1}, () => Array(d + 1).fill(0));
+      const b = Array(d + 1).fill(0);
+      const sums = [];
+      for (let k = 0; k <= 2 * d; k++) {
+        sums[k] = points.reduce((acc, pt) => acc + Math.pow(pt.x, k), 0);
+      }
+      for (let i = 0; i <= d; i++) {
+        for (let j = 0; j <= d; j++) {
+          A[i][j] = sums[i + j];
+        }
+      }
+      for (let i = 0; i <= d; i++) {
+        for (let k = 0; k < n; k++) {
+          b[i] += Math.pow(points[k].x, i) * points[k].y;
+        }
+      }
+      const coeffs = solveLinearSystem(A, b);
+      return (x) => {
+        let y = 0;
+        for (let i = 0; i <= d; i++) {
+          y += coeffs[i] * Math.pow(x, i);
+        }
+        return y;
+      }
+    }
+
+    // Resolução do sistema linear via eliminação Gaussiana
+    function solveLinearSystem(A, b) {
+      const n = A.length;
+      const M = A.map((row, i) => [...row, b[i]]);
+      for (let i = 0; i < n; i++) {
+        let maxRow = i;
+        for (let k = i + 1; k < n; k++) {
+          if (Math.abs(M[k][i]) > Math.abs(M[maxRow][i])) maxRow = k;
+        }
+        [M[i], M[maxRow]] = [M[maxRow], M[i]];
+        if (Math.abs(M[i][i]) < 1e-12) throw new Error("Pivô zero.");
+        for (let k = i + 1; k < n; k++) {
+          const factor = M[k][i] / M[i][i];
+          for (let j = i; j <= n; j++) {
+            M[k][j] -= factor * M[i][j];
+          }
+        }
+      }
+      const x = Array(n).fill(0);
+      for (let i = n - 1; i >= 0; i--) {
+        x[i] = M[i][n] / M[i][i];
+        for (let k = i - 1; k >= 0; k--) {
+          M[k][n] -= M[k][i] * x[i];
+        }
+      }
+      return x;
+    }
+
+    // Interpolação de Lagrange
+    function lagrangePolynomial(points) {
+      const sorted = [...points].sort((a, b) => a.x - b.x);
+      return (x) => {
+        let result = 0;
+        const n = sorted.length;
+        for (let i = 0; i < n; i++) {
+          let term = sorted[i].y;
+          for (let j = 0; j < n; j++) {
+            if (i !== j) term *= (x - sorted[j].x) / (sorted[i].x - sorted[j].x);
+          }
+          result += term;
+        }
+        return result;
+      }
+    }
+
+    // Interpolação de Newton
+    function newtonPolynomial(points) {
+      const sorted = [...points].sort((a, b) => a.x - b.x);
+      const n = sorted.length;
+      const xs = sorted.map(pt => pt.x);
+      const coeffs = [];
+      const dd = sorted.map(pt => pt.y);
+      coeffs.push(dd[0]);
+      for (let i = 1; i < n; i++) {
+        for (let j = 0; j < n - i; j++) {
+          dd[j] = (dd[j + 1] - dd[j]) / (xs[j + i] - xs[j]);
+        }
+        coeffs.push(dd[0]);
+      }
+      return (x) => {
+        let result = 0, prod = 1;
+        for (let i = 0; i < n; i++) {
+          if (i > 0) prod *= (x - xs[i - 1]);
+          result += coeffs[i] * prod;
+        }
+        return result;
+      }
+    }
+
+    // =========================
+    // CALCULA E DESENHA A CURVA
+    // =========================
+    function calculateCurve() {
+      if (points.length < 2) {
+        alert("Adicione pelo menos 2 pontos.");
+        return;
+      }
+      let f;
+      try {
+        if (currentMethod === "mmq") {
+          const degree = parseInt(degreeInput.value, 10);
+          if (points.length < degree + 1) {
+            alert("Para MMQ, é necessário (grau+1) pontos.");
+            return;
+          }
+          f = mmqPolynomial(points, degree);
+        } else if (currentMethod === "lagrange") {
+          f = lagrangePolynomial(points);
+        } else if (currentMethod === "newton") {
+          f = newtonPolynomial(points);
+        }
+      } catch (error) {
+        alert("Erro na interpolação: " + error.message);
+        return;
+      }
+
+      console.log("Função interpoladora:", f);
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawAllPoints();
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "blue";
+      let first = true;
+      for (let x = 0; x <= canvas.width; x += 1) {
+        const y = f(x);
+        if (first) { ctx.moveTo(x, y); first = false; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Limpa o canvas e os pontos
+    function clearCanvas() {
+      stopCapturing();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      points = [];
+      if (readingMode) startCapturing();
+    }
+
+    // =========================
+    // EVENTOS DOS BOTÕES E INPUTS
+    // =========================
+
+    // Botões de modo
+    readingModeBtn.addEventListener("click", () => { 
+      readingMode = true; 
+      startCapturing();
+    });
+    renderingModeBtn.addEventListener("click", () => { 
+      readingMode = false; 
+      stopCapturing();
+    });
+
+    // Botões para selecionar método (calculam automaticamente a curva)
+    mmqBtn.addEventListener("click", () => { 
+      currentMethod = "mmq"; 
+      calculateCurve();
+    });
+    lagrangeBtn.addEventListener("click", () => { 
+      currentMethod = "lagrange"; 
+      calculateCurve();
+    });
+    newtonBtn.addEventListener("click", () => { 
+      currentMethod = "newton"; 
+      calculateCurve();
+    });
+
+    // Adiciona ponto manualmente
+    addPointBtn.addEventListener("click", () => {
+      const xVal = parseFloat(xInput.value);
+      const yVal = parseFloat(yInput.value);
+      points.push({ x: xVal, y: yVal });
+      drawPoint(xVal, yVal);
+    });
+
+    // Botão para limpar
+    clearBtn.addEventListener("click", clearCanvas);
+
+    // Inicia a captura se estiver em modo leitura
+    startCapturing();
+  </script>
+</body>
+</html>
