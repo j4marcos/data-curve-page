@@ -12,9 +12,7 @@
       --text-color: #333333;
       --hover-color: #0056b3;
     }
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -33,6 +31,7 @@
       border: 2px solid var(--primary-color);
       background-color: var(--secondary-color);
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      cursor: crosshair;
     }
     .sidebar {
       background-color: var(--secondary-color);
@@ -40,7 +39,7 @@
       border-radius: 8px;
       padding: 20px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.05);
-      max-width: 300px;
+      max-width: 320px;
       width: 100%;
     }
     .sidebar h2 {
@@ -68,12 +67,12 @@
       font-weight: bold;
       font-size: 14px;
     }
+    .group input[type="file"],
     .group input[type="number"] {
       padding: 5px;
       font-size: 14px;
       border: 1px solid #ccc;
       border-radius: 4px;
-      width: 70px;
     }
     .group button {
       padding: 7px 12px;
@@ -88,24 +87,51 @@
     .group button:hover {
       background-color: var(--hover-color);
     }
+    button.active {
+      background-color: var(--secondary-color);
+      color: var(--primary-color);
+      border: 2px solid var(--primary-color);
+    }
+    /* Painéis de erro e polinômio */
+    .painel {
+      background-color: #f9f9f9;
+      border-radius: 4px;
+      padding: 10px;
+      font-size: 14px;
+      margin-bottom: 10px;
+      min-height: 50px;
+      overflow-wrap: break-word;
+    }
+    .erro {
+      background-color: #ffe6e6;
+      border: 1px solid #ff0000;
+      color: #ff0000;
+    }
+    .polinomio {
+      background-color: #e6f7ff;
+      border: 1px solid #007BFF;
+      font-family: monospace;
+      min-height: 100px;
+    }
   </style>
 </head>
 <body>
   <div class="main-container">
-    <canvas id="canvas" width="600" height="600"></canvas>
+
+    <div style="display: flex; flex-direction: column; align-items: center;">
+      <h2>
+      clique no canvas para adicionar pontos.
+      </h2>
+      <canvas id="canvas" width="600" height="600"></canvas>
+    </div>
     <aside class="sidebar">
       <h2>Interpolação de Curvas</h2>
       
-      <!-- Seção Configurações de Captura -->
-      <section class="config-captura">
-        <h3>Configurações de Captura</h3>
+      <!-- Seção Upload de Arquivo -->
+      <section class="upload-arquivo">
+        <h3>Upload de Arquivo</h3>
         <div class="group">
-          <label for="intervalInput">Intervalo (ms):</label>
-          <input type="number" id="intervalInput" value="50" min="1">
-        </div>
-        <div class="group">
-          <button id="readingModeBtn">Modo Leitura</button>
-          <button id="renderingModeBtn">Modo Renderização</button>
+          <input type="file" id="uploadFile" accept=".csv, .txt">
         </div>
       </section>
       
@@ -113,25 +139,14 @@
       <section class="metodos">
         <h3>Método de Interpolação</h3>
         <div class="group">
-          <button id="mmqBtn">MMQ</button>
+          <button id="mmqBtn" class="active">MMQ</button>
           <button id="lagrangeBtn">Lagrange</button>
           <button id="newtonBtn">Newton</button>
         </div>
+        <!-- Para MMQ, exibe o grau desejado -->
         <div class="group">
           <label for="degreeInput">Grau (MMQ):</label>
           <input type="number" id="degreeInput" value="2" min="1">
-        </div>
-      </section>
-      
-      <!-- Seção Adicionar Ponto Manual -->
-      <section class="adicionar-ponto">
-        <h3>Adicionar Ponto Manual</h3>
-        <div class="group">
-          <label for="xInput">X:</label>
-          <input type="number" id="xInput" value="0">
-          <label for="yInput">Y:</label>
-          <input type="number" id="yInput" value="0">
-          <button id="addPointBtn">Adicionar Ponto</button>
         </div>
       </section>
       
@@ -143,116 +158,91 @@
         </div>
       </section>
       
+      <!-- Painel de Erros -->
+      <section class="erros">
+        <h3>Erros</h3>
+        <div id="errorPanel" class="painel erro"></div>
+      </section>
+      
+      <!-- Painel do Polinômio -->
+      <section class="polinomio-panel">
+        <h3>Polinômio Gerado</h3>
+        <div id="polyPanel" class="painel polinomio"></div>
+      </section>
+      
     </aside>
   </div>
   
   <script>
-    // Seleção dos elementos
+    // ===============================
+    // VARIÁVEIS E ELEMENTOS GLOBAIS
+    // ===============================
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const intervalInput = document.getElementById("intervalInput");
+    
+    // Elementos da sidebar
     const degreeInput = document.getElementById("degreeInput");
-    const readingModeBtn = document.getElementById("readingModeBtn");
-    const renderingModeBtn = document.getElementById("renderingModeBtn");
     const mmqBtn = document.getElementById("mmqBtn");
     const lagrangeBtn = document.getElementById("lagrangeBtn");
     const newtonBtn = document.getElementById("newtonBtn");
     const clearBtn = document.getElementById("clearBtn");
-    const xInput = document.getElementById("xInput");
-    const yInput = document.getElementById("yInput");
-    const addPointBtn = document.getElementById("addPointBtn");
+    const uploadFileInput = document.getElementById("uploadFile");
+    const errorPanel = document.getElementById("errorPanel");
+    const polyPanel = document.getElementById("polyPanel");
 
     // Variáveis de controle
-    let captureTimer = null;
-    let points = []; // Armazena os pontos {x, y}
-    let currentMousePos = null;
-    let currentMethod = "mmq"; // método padrão
-    let readingMode = true; // modo leitura ativo por padrão
+    let points = [];         // Armazena os pontos {x, y}
+    let isFileData = false;  // Indica se os pontos foram carregados por arquivo
+    let currentMethod = "mmq"; // método de interpolação padrão
 
-    // Atualiza a posição do mouse sobre o canvas
-    canvas.addEventListener("mousemove", (e) => {
-      const rect = canvas.getBoundingClientRect();
-      currentMousePos = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      };
-    });
-    canvas.addEventListener("mouseleave", () => { currentMousePos = null; });
+    // Parâmetros de escala (para dados do arquivo)
+    let scaleParams = null;
 
-    // Desenha um ponto (círculo pequeno) no canvas
-    function drawPoint(x, y) {
-      ctx.fillStyle = "red";
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fill();
+    // ===============================
+    // FUNÇÕES DE ERRO E POLINÔMIO
+    // ===============================
+    function updateError(msg) {
+      errorPanel.textContent = msg;
     }
-
-    // Desenha todos os pontos armazenados
-    function drawAllPoints() {
-      points.forEach(pt => drawPoint(pt.x, pt.y));
+    function clearError() {
+      errorPanel.textContent = "";
     }
-
-    // Inicia a captura dos pontos (modo leitura)
-    function startCapturing() {
-      if (captureTimer) clearInterval(captureTimer);
-      const interval = parseInt(intervalInput.value, 10);
-      captureTimer = setInterval(() => {
-        if (readingMode && currentMousePos) {
-          points.push({ x: currentMousePos.x, y: currentMousePos.y });
-          drawPoint(currentMousePos.x, currentMousePos.y);
-        }
-      }, interval);
-    }
-
-    // Para a captura dos pontos
-    function stopCapturing() {
-      if (captureTimer) {
-        clearInterval(captureTimer);
-        captureTimer = null;
-      }
-    }
-
-    // =========================
-    // MÉTODOS DE INTERPOLAÇÃO
-    // =========================
-
-    // MMQ (Mínimos Quadrados)
-    function mmqPolynomial(points, degree) {
-      const n = points.length, d = degree;
-      const A = Array.from({length: d + 1}, () => Array(d + 1).fill(0));
-      const b = Array(d + 1).fill(0);
-      const sums = [];
-      for (let k = 0; k <= 2 * d; k++) {
-        sums[k] = points.reduce((acc, pt) => acc + Math.pow(pt.x, k), 0);
-      }
-      for (let i = 0; i <= d; i++) {
-        for (let j = 0; j <= d; j++) {
-          A[i][j] = sums[i + j];
+    function updatePolyPanel() {
+      let polyText = "";
+      if (points.length < 2) {
+        polyText = "Adicione pelo menos 2 pontos para gerar um polinômio.";
+      } else {
+        try {
+          if (currentMethod === "mmq") {
+            const degree = parseInt(degreeInput.value, 10);
+            const coeffs = computeMMQCoefficients(points, degree);
+            polyText = formatPolynomial(coeffs);
+          } else if (currentMethod === "newton") {
+            const result = newtonPolynomialWithCoeffs(points);
+            polyText = formatPolynomial(result.coeffs);
+          } else if (currentMethod === "lagrange") {
+            const coeffs = lagrangePolynomialSymbolic(points);
+            polyText = formatPolynomial(coeffs);
+          }
+        } catch (err) {
+          polyText = "Erro ao calcular o polinômio: " + err.message;
         }
       }
-      for (let i = 0; i <= d; i++) {
-        for (let k = 0; k < n; k++) {
-          b[i] += Math.pow(points[k].x, i) * points[k].y;
-        }
-      }
-      const coeffs = solveLinearSystem(A, b);
-      return (x) => {
-        let y = 0;
-        for (let i = 0; i <= d; i++) {
-          y += coeffs[i] * Math.pow(x, i);
-        }
-        return y;
-      }
+      polyPanel.textContent = polyText;
     }
 
-    // Resolução do sistema linear via eliminação Gaussiana
+    // ===============================
+    // FUNÇÕES DE CONVERSÃO POLINOMIAL
+    // ===============================
     function solveLinearSystem(A, b) {
       const n = A.length;
       const M = A.map((row, i) => [...row, b[i]]);
       for (let i = 0; i < n; i++) {
         let maxRow = i;
         for (let k = i + 1; k < n; k++) {
-          if (Math.abs(M[k][i]) > Math.abs(M[maxRow][i])) maxRow = k;
+          if (Math.abs(M[k][i]) > Math.abs(M[maxRow][i])) {
+            maxRow = k;
+          }
         }
         [M[i], M[maxRow]] = [M[maxRow], M[i]];
         if (Math.abs(M[i][i]) < 1e-12) throw new Error("Pivô zero.");
@@ -272,10 +262,113 @@
       }
       return x;
     }
+    function computeMMQCoefficients(pts, degree) {
+      const n = pts.length, d = degree;
+      const A = Array.from({length: d + 1}, () => Array(d + 1).fill(0));
+      const b = Array(d + 1).fill(0);
+      const sums = [];
+      for (let k = 0; k <= 2 * d; k++) {
+        sums[k] = pts.reduce((acc, pt) => acc + Math.pow(pt.x, k), 0);
+      }
+      for (let i = 0; i <= d; i++) {
+        for (let j = 0; j <= d; j++) {
+          A[i][j] = sums[i + j];
+        }
+      }
+      for (let i = 0; i <= d; i++) {
+        for (let k = 0; k < n; k++) {
+          b[i] += Math.pow(pts[k].x, i) * pts[k].y;
+        }
+      }
+      return solveLinearSystem(A, b);
+    }
+    function multiplyPoly(p1, p2) {
+      const result = Array(p1.length + p2.length - 1).fill(0);
+      for (let i = 0; i < p1.length; i++) {
+        for (let j = 0; j < p2.length; j++) {
+          result[i + j] += p1[i] * p2[j];
+        }
+      }
+      return result;
+    }
+    function addPoly(p1, p2) {
+      const maxLen = Math.max(p1.length, p2.length);
+      const result = Array(maxLen).fill(0);
+      for (let i = 0; i < maxLen; i++) {
+        const a = i < p1.length ? p1[i] : 0;
+        const b = i < p2.length ? p2[i] : 0;
+        result[i] = a + b;
+      }
+      return result;
+    }
+    function formatPolynomial(coeffs) {
+      let terms = [];
+      for (let i = coeffs.length - 1; i >= 0; i--) {
+        let coef = coeffs[i];
+        if (Math.abs(coef) < 1e-6) continue;
+        let sign = (coef >= 0) ? (terms.length > 0 ? " + " : "") : " - ";
+        coef = Math.abs(coef);
+        let coefStr = (coef === 1 && i !== 0) ? "" : parseFloat(coef.toFixed(4)).toString();
+        if (i === 0) {
+          terms.push(sign + coefStr);
+        } else if (i === 1) {
+          terms.push(sign + coefStr + "x");
+        } else {
+          terms.push(sign + coefStr + "x^" + i);
+        }
+      }
+      if (terms.length === 0) return "0";
+      let polyStr = terms.join("");
+      if (polyStr.startsWith(" + ")) polyStr = polyStr.slice(3);
+      return polyStr;
+    }
+    // Converte a forma de Newton para a forma padrão
+    function newtonPolynomialWithCoeffs(pts) {
+      const sorted = [...pts].sort((a, b) => a.x - b.x);
+      const n = sorted.length;
+      const xs = sorted.map(pt => pt.x);
+      let coeffsNewton = [];
+      let dd = sorted.map(pt => pt.y);
+      coeffsNewton.push(dd[0]);
+      for (let i = 1; i < n; i++) {
+        for (let j = 0; j < n - i; j++) {
+          dd[j] = (dd[j + 1] - dd[j]) / (xs[j + i] - xs[j]);
+        }
+        coeffsNewton.push(dd[0]);
+      }
+      // Converte para a forma padrão
+      let standard = [coeffsNewton[0]];
+      for (let i = 1; i < n; i++) {
+        let termPoly = [1];
+        for (let j = 0; j < i; j++) {
+          termPoly = multiplyPoly(termPoly, [-xs[j], 1]);
+        }
+        termPoly = termPoly.map(c => c * coeffsNewton[i]);
+        standard = addPoly(standard, termPoly);
+      }
+      return { coeffs: standard, newtonCoeffs: coeffsNewton, xs };
+    }
+    // Implementação simbólica da representação polinomial de Lagrange
+    function lagrangePolynomialSymbolic(pts) {
+      const n = pts.length;
+      let result = [0];
+      for (let i = 0; i < n; i++) {
+        let Li = [1];
+        for (let j = 0; j < n; j++) {
+          if (j === i) continue;
+          Li = multiplyPoly(Li, [-pts[j].x, 1]);
+          let factor = pts[i].x - pts[j].x;
+          Li = Li.map(c => c / factor);
+        }
+        Li = Li.map(c => c * pts[i].y);
+        result = addPoly(result, Li);
+      }
+      return result;
+    }
 
-    // Interpolação de Lagrange
-    function lagrangePolynomial(points) {
-      const sorted = [...points].sort((a, b) => a.x - b.x);
+    // Funções de interpolação para desenho
+    function lagrangePolynomial(pts) {
+      const sorted = [...pts].sort((a, b) => a.x - b.x);
       return (x) => {
         let result = 0;
         const n = sorted.length;
@@ -289,14 +382,12 @@
         return result;
       }
     }
-
-    // Interpolação de Newton
-    function newtonPolynomial(points) {
-      const sorted = [...points].sort((a, b) => a.x - b.x);
+    function newtonPolynomial(pts) {
+      const sorted = [...pts].sort((a, b) => a.x - b.x);
       const n = sorted.length;
       const xs = sorted.map(pt => pt.x);
-      const coeffs = [];
-      const dd = sorted.map(pt => pt.y);
+      let coeffs = [];
+      let dd = sorted.map(pt => pt.y);
       coeffs.push(dd[0]);
       for (let i = 1; i < n; i++) {
         for (let j = 0; j < n - i; j++) {
@@ -314,98 +405,300 @@
       }
     }
 
-    // =========================
-    // CALCULA E DESENHA A CURVA
-    // =========================
-    function calculateCurve() {
-      if (points.length < 2) {
-        alert("Adicione pelo menos 2 pontos.");
-        return;
+    // ===============================
+    // FUNÇÕES DE ESCALA E TRANSFORMAÇÃO (dados de arquivo)
+    // ===============================
+    function computeScaling(pts, margin = 40) {
+      const xs = pts.map(pt => pt.x);
+      const ys = pts.map(pt => pt.y);
+      let minX = Math.min(...xs);
+      let maxX = Math.max(...xs);
+      let minY = Math.min(...ys);
+      let maxY = Math.max(...ys);
+      if (maxX === minX) { maxX = minX + 1; }
+      if (maxY === minY) { maxY = minY + 1; }
+      return { minX, maxX, minY, maxY, margin };
+    }
+    function transformPoint(pt, params) {
+      const { minX, maxX, minY, maxY, margin } = params;
+      const x = margin + ((pt.x - minX) / (maxX - minX)) * (canvas.width - 2 * margin);
+      const y = canvas.height - margin - ((pt.y - minY) / (maxY - minY)) * (canvas.height - 2 * margin);
+      return { x, y };
+    }
+    function scalePoints(pts) {
+      scaleParams = computeScaling(pts);
+      return pts.map(pt => transformPoint(pt, scaleParams));
+    }
+
+    // ===============================
+    // FUNÇÕES DE DESENHO DOS EIXOS COM TICKS
+    // ===============================
+    function drawAxesForFile() {
+      const { minX, maxX, minY, maxY, margin } = scaleParams;
+      let zeroY;
+      if (minY <= 0 && maxY >= 0) {
+        zeroY = canvas.height - margin - ((0 - minY) / (maxY - minY)) * (canvas.height - 2 * margin);
+      } else if (minY > 0) {
+        zeroY = canvas.height - margin;
+      } else {
+        zeroY = margin;
       }
+      ctx.beginPath();
+      ctx.moveTo(margin, zeroY);
+      ctx.lineTo(canvas.width - margin, zeroY);
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      
+      let zeroX;
+      if (minX <= 0 && maxX >= 0) {
+        zeroX = margin + ((0 - minX) / (maxX - minX)) * (canvas.width - 2 * margin);
+      } else if (minX > 0) {
+        zeroX = margin;
+      } else {
+        zeroX = canvas.width - margin;
+      }
+      ctx.beginPath();
+      ctx.moveTo(zeroX, margin);
+      ctx.lineTo(zeroX, canvas.height - margin);
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      
+      const numTicks = 5;
+      ctx.font = "10px Arial";
+      ctx.fillStyle = "black";
+      ctx.textAlign = "center";
+      for (let i = 0; i <= numTicks; i++) {
+        let dataVal = minX + i * ((maxX - minX) / numTicks);
+        let xCanvas = margin + ((dataVal - minX) / (maxX - minX)) * (canvas.width - 2 * margin);
+        ctx.beginPath();
+        ctx.moveTo(xCanvas, zeroY - 5);
+        ctx.lineTo(xCanvas, zeroY + 5);
+        ctx.stroke();
+        ctx.fillText(dataVal.toFixed(2), xCanvas, zeroY + 15);
+      }
+      ctx.textAlign = "right";
+      for (let i = 0; i <= numTicks; i++) {
+        let dataVal = minY + i * ((maxY - minY) / numTicks);
+        let yCanvas = canvas.height - margin - ((dataVal - minY) / (maxY - minY)) * (canvas.height - 2 * margin);
+        ctx.beginPath();
+        ctx.moveTo(zeroX - 5, yCanvas);
+        ctx.lineTo(zeroX + 5, yCanvas);
+        ctx.stroke();
+        ctx.fillText(dataVal.toFixed(2), zeroX - 7, yCanvas + 3);
+      }
+    }
+    function drawAxesForMouse() {
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height - 1);
+      ctx.lineTo(canvas.width, canvas.height - 1);
+      ctx.moveTo(1, 0);
+      ctx.lineTo(1, canvas.height);
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      
+      let stepX = 50;
+      ctx.font = "10px Arial";
+      ctx.fillStyle = "black";
+      ctx.textAlign = "center";
+      for (let x = 0; x <= canvas.width; x += stepX) {
+        ctx.beginPath();
+        ctx.moveTo(x, canvas.height - 5);
+        ctx.lineTo(x, canvas.height + 5);
+        ctx.stroke();
+        ctx.fillText(x, x, canvas.height + 15);
+      }
+      let stepY = 50;
+      ctx.textAlign = "right";
+      for (let y = 0; y <= canvas.height; y += stepY) {
+        ctx.beginPath();
+        ctx.moveTo(1 - 5, y);
+        ctx.lineTo(1 + 5, y);
+        ctx.stroke();
+        ctx.fillText(y, 1 - 7, y + 3);
+      }
+    }
+
+    // ===============================
+    // FUNÇÕES DE DESENHO NO CANVAS
+    // ===============================
+    function drawPoints() {
+      if (isFileData) {
+        const scaled = scalePoints(points);
+        scaled.forEach(pt => {
+          ctx.fillStyle = "red";
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      } else {
+        points.forEach(pt => {
+          ctx.fillStyle = "red";
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    }
+    
+    function drawCurve() {
+      if (points.length < 2) return;
       let f;
       try {
         if (currentMethod === "mmq") {
           const degree = parseInt(degreeInput.value, 10);
           if (points.length < degree + 1) {
-            alert("Para MMQ, é necessário (grau+1) pontos.");
+            updateError("Para MMQ, é necessário (grau+1) pontos.");
             return;
           }
-          f = mmqPolynomial(points, degree);
+          clearError();
+          const coeffs = computeMMQCoefficients(points, degree);
+          f = (x) => {
+            let y = 0;
+            for (let i = 0; i <= degree; i++) {
+              y += coeffs[i] * Math.pow(x, i);
+            }
+            return y;
+          };
         } else if (currentMethod === "lagrange") {
+          clearError();
           f = lagrangePolynomial(points);
         } else if (currentMethod === "newton") {
+          clearError();
           f = newtonPolynomial(points);
         }
       } catch (error) {
-        alert("Erro na interpolação: " + error.message);
+        updateError("Erro na interpolação: " + error.message);
+        console.error("Erro na interpolação:", error.message);
         return;
       }
-
-      console.log("Função interpoladora:", f);
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawAllPoints();
       ctx.beginPath();
       ctx.lineWidth = 2;
       ctx.strokeStyle = "blue";
-      let first = true;
-      for (let x = 0; x <= canvas.width; x += 1) {
-        const y = f(x);
-        if (first) { ctx.moveTo(x, y); first = false; }
-        else ctx.lineTo(x, y);
+      
+      if (isFileData) {
+        const { minX, maxX, minY, maxY, margin } = scaleParams;
+        const samples = 600;
+        let first = true;
+        for (let i = 0; i <= samples; i++) {
+          const dataX = minX + (i / samples) * (maxX - minX);
+          const dataY = f(dataX);
+          const canvasX = margin + ((dataX - minX) / (maxX - minX)) * (canvas.width - 2 * margin);
+          const canvasY = canvas.height - margin - ((dataY - minY) / (maxY - minY)) * (canvas.height - 2 * margin);
+          if (first) { ctx.moveTo(canvasX, canvasY); first = false; }
+          else { ctx.lineTo(canvasX, canvasY); }
+        }
+      } else {
+        let first = true;
+        for (let x = 0; x <= canvas.width; x += 1) {
+          const y = f(x);
+          if (first) { ctx.moveTo(x, y); first = false; }
+          else { ctx.lineTo(x, y); }
+        }
       }
       ctx.stroke();
     }
-
-    // Limpa o canvas e os pontos
-    function clearCanvas() {
-      stopCapturing();
+    
+    function updateCanvas() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      points = [];
-      if (readingMode) startCapturing();
+      if (isFileData && points.length > 0) {
+        scaleParams = computeScaling(points);
+        drawAxesForFile();
+      } else {
+        drawAxesForMouse();
+      }
+      drawPoints();
+      if (points.length >= 2) {
+        drawCurve();
+      }
+      updatePolyPanel();
     }
 
-    // =========================
-    // EVENTOS DOS BOTÕES E INPUTS
-    // =========================
+    // ===============================
+    // EVENTOS
+    // ===============================
+    // Atualiza o gráfico quando o grau do MMQ é alterado
+    degreeInput.addEventListener("input", updateCanvas);
 
-    // Botões de modo
-    readingModeBtn.addEventListener("click", () => { 
-      readingMode = true; 
-      startCapturing();
-    });
-    renderingModeBtn.addEventListener("click", () => { 
-      readingMode = false; 
-      stopCapturing();
+    // Upload de arquivo
+    uploadFileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target.result;
+        const newPoints = [];
+        const lines = content.split("\n");
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (trimmed === "") return;
+          const parts = trimmed.split(/,|;/);
+          if (parts.length >= 2) {
+            const x = parseFloat(parts[0]);
+            const y = parseFloat(parts[1]);
+            if (!isNaN(x) && !isNaN(y)) {
+              newPoints.push({ x, y });
+            }
+          }
+        });
+        if (newPoints.length === 0) {
+          updateError("Arquivo sem dados válidos.");
+          return;
+        }
+        clearError();
+        points = newPoints;
+        isFileData = true;
+        updateCanvas();
+      };
+      reader.readAsText(file);
     });
 
-    // Botões para selecionar método (calculam automaticamente a curva)
-    mmqBtn.addEventListener("click", () => { 
-      currentMethod = "mmq"; 
-      calculateCurve();
-    });
-    lagrangeBtn.addEventListener("click", () => { 
-      currentMethod = "lagrange"; 
-      calculateCurve();
-    });
-    newtonBtn.addEventListener("click", () => { 
-      currentMethod = "newton"; 
-      calculateCurve();
+    // Adiciona pontos via clique no canvas (para dados do mouse)
+    canvas.addEventListener("click", (e) => {
+      if (isFileData) return;
+      const rect = canvas.getBoundingClientRect();
+      const newPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      points.push(newPoint);
+      updateCanvas();
     });
 
-    // Adiciona ponto manualmente
-    addPointBtn.addEventListener("click", () => {
-      const xVal = parseFloat(xInput.value);
-      const yVal = parseFloat(yInput.value);
-      points.push({ x: xVal, y: yVal });
-      drawPoint(xVal, yVal);
+    // Atualiza o indicador visual do método de interpolação
+    function updateInterpolationModeIndicator(selectedMode) {
+      [mmqBtn, lagrangeBtn, newtonBtn].forEach(btn => btn.classList.remove("active"));
+      if (selectedMode === "mmq") mmqBtn.classList.add("active");
+      else if (selectedMode === "lagrange") lagrangeBtn.classList.add("active");
+      else if (selectedMode === "newton") newtonBtn.classList.add("active");
+    }
+
+    mmqBtn.addEventListener("click", () => {
+      currentMethod = "mmq";
+      updateInterpolationModeIndicator("mmq");
+      updateCanvas();
     });
-
-    // Botão para limpar
-    clearBtn.addEventListener("click", clearCanvas);
-
-    // Inicia a captura se estiver em modo leitura
-    startCapturing();
+    lagrangeBtn.addEventListener("click", () => {
+      currentMethod = "lagrange";
+      updateInterpolationModeIndicator("lagrange");
+      updateCanvas();
+    });
+    newtonBtn.addEventListener("click", () => {
+      currentMethod = "newton";
+      updateInterpolationModeIndicator("newton");
+      updateCanvas();
+    });
+    clearBtn.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      points = [];
+      isFileData = false;
+      clearError();
+      polyPanel.textContent = "";
+      updateCanvas();
+    });
+    
+    // Inicializa o canvas
+    updateCanvas();
   </script>
 </body>
 </html>
